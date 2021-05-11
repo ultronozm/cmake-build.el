@@ -144,7 +144,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
              (get-buffer-process (current-buffer)))
     (cmake-build-kill-buffer-process))
   (if (= 1 (length (window-list)))
-      (case cmake-build-run-quit-frame-type
+      (cl-case cmake-build-run-quit-frame-type
         (lower (lower-frame))
         (delete (delete-frame)))
     (delete-window)))
@@ -155,7 +155,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
          (p (get-buffer-process buffer)))
     (when p
       (with-current-buffer buffer
-        (case major-mode
+        (cl-case major-mode
           (shell-mode (kill-process p))
           (compilation-mode (kill-compilation)))))))
 
@@ -255,15 +255,15 @@ use Projectile to determine the root on a buffer-local basis, instead.")
 
 (defun cmake-build--validate (&optional tag)
   (not
-   (case (cmake-build--validity)
+   (cl-case (cmake-build--validity)
      (:build-dir-missing
       (message "cmake-build %s: No build dir (%s)\nDo you need to initialize CMake?"
                (or tag "compile")
                (cmake-build--get-build-dir)))
      (:data-missing
-      (message "cmake-build %s: Not a valid project; no .cmake-build.el data found (project root is %s)"
-               (or tag "compile")
-               (cmake-build--project-root)))
+      (message "cmake-build %s: Not a valid project ; no .cmake-build.el data found (project root is %s)"
+	       (or tag "compile")
+	       (cmake-build--project-root)))
      (t nil))))
 
 (defun cmake-build-project-name ()
@@ -387,7 +387,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
     t))
 
 (defun cmake-build--display-buffer (name &optional other-name)
-  (case cmake-build-display-type
+  (cl-case cmake-build-display-type
     (split (cmake-build--split-to-buffer name other-name))
     (frame (cmake-build--popup-buffer name other-name))))
 
@@ -472,6 +472,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
           (message "Already running %s/%s"
                    (projectile-project-name)
                    (symbol-name cmake-build-profile))
+				(message "Command: %s\n" command)
         (async-shell-command command buffer-name)
         (with-current-buffer buffer-name
           (use-local-map cmake-build-run-keymap))))))
@@ -488,7 +489,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
            (lambda (process event)
              (let* ((this-root this-root)
                     (cmake-build-project-root this-root))
-               (when (equalp "finished\n" event)
+               (when (cl-equalp "finished\n" event)
                  (cmake-build--invoke-run this-run-config)))))
         (cmake-build--invoke-run this-run-config)))))
 
@@ -511,7 +512,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
    (list
     (let* ((configs (cmake-build--get-configs))
            (choices (mapcar (lambda (x) (symbol-name (car x))) configs)))
-      (intern (ido-completing-read "CMake Config: " choices nil t nil nil (symbol-name (cmake-build-get-run-config-name)))))))
+      (intern (funcall cmake-build-completing-read-function "CMake Config: " choices nil t nil nil (symbol-name (cmake-build-get-run-config-name)))))))
   (let* ((config (cmake-build--get-config config-name)))
     (if config
         (progn
@@ -543,7 +544,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
    (list
     (let* ((default-directory (cmake-build--build-root)))
       (read-directory-name "CMake Build build root (blank to unset): "))))
-  (if (equalp "" path)
+  (if (cl-equalp "" path)
       (progn
         (message "Build root reset to default")
         (cmake-build--set-build-root nil))
@@ -560,7 +561,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
    (list
     (let* ((profiles (cmake-build--get-cmake-profiles))
            (choices (mapcar (lambda (x) (symbol-name (car x))) profiles)))
-      (intern (ido-completing-read "CMake Profile " choices nil t nil nil (symbol-name cmake-build-profile))))))
+      (intern (funcall cmake-build-completing-read-function "CMake Profile " choices nil t nil nil (symbol-name cmake-build-profile))))))
   (let* ((profile (cmake-build--get-profile profile-name)))
     (if profile
         (progn
@@ -709,7 +710,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
    `(keymap "CMake Build: Settings" ,@(cmake-build--menu-settings))))
 
 (defun cmake-build--menu-action-dispatch (action)
-  (case (car action)
+  (cl-case (car action)
     (:info (message "Project root: %s" (cmake-build--project-root)))
     (:debug (cmake-build-debug))
     (:build (cmake-build-current))

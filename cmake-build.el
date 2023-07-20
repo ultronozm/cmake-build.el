@@ -39,7 +39,7 @@ passed to cmake, and the current config."
   :group 'cmake-build)
 
 (defcustom cmake-build-before-run t
-  "Build automtically before running app, when using `cmake-build-run`."
+  "Build automatically before running app, when using `cmake-build-run`."
   :type 'boolean
   :group 'cmake-build)
 
@@ -117,6 +117,39 @@ default, the name is in the form `build.<profile>`."
   :type 'boolean
   :group 'cmake-build)
 
+(defcustom cmake-build-completing-read-function 'ido-completing-read
+  "Specify a completing function to use in cmake-build-set-config and cmake-build-set-cmake-profile.
+We assume that the function has syntax compatible with  ido-completing-read or ivy-completing-read.  See the indicated cmakeb-build-set-* functions for details."
+  :type 'function
+  :group 'cmake-build
+  )
+
+(defcustom cmake-build-project-root-function 'cmake-build-default-project-root-function
+  "Return the project root."
+  :type 'function
+  :group 'cmake-build
+  )
+
+(defcustom cmake-build-project-name-function 'cmake-build-default-project-name-function
+  "Return the project name."
+  :type 'function
+  :group 'cmake-build
+  )
+;; (defcustom cmake-build-run-function 'async-shell-command
+;;   "Specify a function to use in cmake-build-run.
+;; The function should accept as its first argument the shell command to run (from default-directory) and as its second argument the name of the buffer to use."
+;;   :type 'function
+;;   :group 'cmake-build
+;;   )
+
+(defun cmake-build-default-project-root-function ()
+  "Return the project root."
+  (project-root (project-current)))
+
+(defun cmake-build-default-project-name-function ()
+  "Return the project name."
+  (project-name (project-current)))
+
 ;;; These are very temporary and likely very host-specific variables,
 ;;; not something we want to constantly modify in custom.el
 (defvar cmake-build-profile 'clang-release
@@ -186,7 +219,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
 
 (defun cmake-build--project-root ()
   (or cmake-build-project-root
-      (projectile-project-root)))
+      (funcall cmake-build-project-root-function)))
 
 (defun cmake-build--maybe-remote-project-root ()
   "Return current project root path, suitable for remote invocations too."
@@ -268,7 +301,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
 
 (defun cmake-build-project-name ()
   (let ((default-directory (cmake-build--project-root)))
-    (projectile-project-name)))
+    (funcall cmake-build-project-name-function)))
 
 (defun cmake-build--build-buffer-name (&optional name)
   (concat "*Build " (cmake-build-project-name) "/" (symbol-name cmake-build-profile) ": " (symbol-name (cmake-build-get-run-config-name)) "*"))
@@ -325,12 +358,15 @@ use Projectile to determine the root on a buffer-local basis, instead.")
 (defun cmake-build-default-build-dir-function (project-root profile)
   (concat "build." profile))
 
-(defun cmake-build--get-build-dir (&optional subdir)
-  (concat (cmake-build--build-root)
-          (funcall cmake-build-dir-name-function
+(defun cmake-build--get-build-dir-relative (&optional subdir)
+  (concat (funcall cmake-build-dir-name-function
                    (cmake-build--project-root)
                    (symbol-name cmake-build-profile))
           "/" (or subdir "")))
+
+(defun cmake-build--get-build-dir (&optional subdir)
+  (concat (cmake-build--build-root)
+	  (cmake-build--get-build-dir-relative)))
 
 (defun cmake-build--check-build-dir ()
   (let ((path (cmake-build--get-build-dir)))
@@ -340,7 +376,15 @@ use Projectile to determine the root on a buffer-local basis, instead.")
       nil)))
 
 (defun cmake-build--get-run-command (config)
-  (concat (cadr config) " " (caddr config)))
+  "Get the run command associated to CONFIG.
+Return the concatenation of the second and third elements of
+config, except when the first element is nil, in which case
+prepend the build directory."
+  (if (car config)
+      (concat (cadr config) " " (caddr config))
+    (concat
+     (cmake-build--get-build-dir-relative)
+     (concat (cadr config) " " (caddr config)))))
 
 (defun cmake-build--switch-to-buffer (buffer buffer-window other-window)
   (if buffer-window t
@@ -402,7 +446,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
          (actual-directory default-directory))
     (if (get-buffer-process buffer-name)
         (message "Already building %s/%s"
-                 (projectile-project-name)
+                 (funcall cmake-build-project-name-function)
                  (symbol-name cmake-build-profile))
       (with-current-buffer buffer-name
         (setq-local compilation-directory actual-directory)
@@ -449,13 +493,17 @@ use Projectile to determine the root on a buffer-local basis, instead.")
   (interactive)
   (cmake-build--invoke-build-current))
 
+(defun cmake-build--get-run-directory (config)
+  (if (car config)
+      (cmake-build--get-build-dir (car config))
+    (cmake-build--maybe-remote-project-root)))
 
 (defun cmake-build--invoke-run (config)
   (cmake-build--save-project-root ()
     (let* ((cmake-build-run-config config)
            (config (cmake-build--get-run-config))
            (command (cmake-build--get-run-command config))
-           (default-directory (cmake-build--get-build-dir (car config)))
+           (default-directory (cmake-build--get-run-directory config))
            (process-environment (append
                                  (list (concat "PROJECT_ROOT="
                                                (cmake-build--maybe-remote-project-root)))
@@ -470,9 +518,13 @@ use Projectile to determine the root on a buffer-local basis, instead.")
               display-buffer-alist)))
       (if (get-buffer-process buffer-name)
           (message "Already running %s/%s"
-                   (projectile-project-name)
+                   (funcall cmake-build-project-name-function)
                    (symbol-name cmake-build-profile))
-				(message "Command: %s\n" command)
+	(message "Command: %s\n" command)
+	(message "Directory: %s\n" default-directory)
+	(message "Project root: %s\n" (cmake-build--maybe-remote-project-root))
+        (with-current-buffer buffer-name
+	  (insert command))
         (async-shell-command command buffer-name)
         (with-current-buffer buffer-name
           (use-local-map cmake-build-run-keymap))))))
@@ -497,7 +549,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
   (interactive)
   (let* ((config (cmake-build--get-run-config))
          (command (cmake-build--get-run-command config))
-         (default-directory (cmake-build--get-build-dir (car config)))
+         (default-directory (cmake-build--get-run-directory config)) // check whether config should be (car config)
          (process-environment (append (cmake-build--get-run-config-env) process-environment)))
     (gdb (concat "gdb -i=mi --args " command))))
 
@@ -521,7 +573,9 @@ use Projectile to determine the root on a buffer-local basis, instead.")
                 (run (cmake-build--get-run-config)))
             (message "Build: %s   Run: %s"
                      (car build)
-                     (substring (cmake-build--get-run-command run) 2))))
+		     (if (car run)
+			 (substring (cmake-build--get-run-command run) 2)
+		       (cmake-build--get-run-command run)))))
       (message "cmake-build: %s isn't a config." config))))
 
 (defun cmake-build-set-buffer-local-config ()

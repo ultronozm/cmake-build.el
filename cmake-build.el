@@ -1,10 +1,10 @@
-;;; -*- lexical-binding: t; -*-
-;;; cmake-build.el --- Handle cmake build profiles and target/run configurations for projects
+;;; cmake-build.el --- Handle cmake build profiles and target/run configurations for projects  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2019-2020  Ryan Pavlik
 
 ;; Author: Ryan Pavlik <rpavlik@gmail.com>
 ;; URL: https://github.com/rpav/cmake-build.el
+;; Package-Requires: ((emacs "29.1"))
 ;; Version: 1.0
 
 ;; This program is free software: you can redistribute it and/or modify
@@ -20,17 +20,27 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+;;; Commentary:
+
+;; (Fork by Paul Nelson.)
+
+;;; Code:
+
+
 (require 'cl-lib)
 (require 'tramp)
+(require 'project)
+(require 'compile)
 
 (defgroup cmake-build ()
-  "Use CMake to build projects and run targets based on configurations"
+  "Use CMake to build projects and run targets based on configurations."
   :group 'tools)
 
 (defcustom cmake-build-local-options-file
   (expand-file-name "cmake-build-options.el" user-emacs-directory)
-  "Path to file storing local cmake-build settings, such as options
-passed to cmake, and the current config."
+  "Path to file storing local cmake-build settings.
+These include options passed to cmake, and the current config."
+  :type 'file
   :group 'cmake-build)
 
 (defcustom cmake-build-run-window-autoswitch t
@@ -44,17 +54,18 @@ passed to cmake, and the current config."
   :group 'cmake-build)
 
 (defcustom cmake-build-display-type 'split
-  "How to display cmake-build output; 'split' will split the
-window (using cmake-build window splitting options), 'frame' will
-create a new frame.  In all cases, the buffers will be reused if
-they are visible, regardless of current display type."
+  "How to display cmake-build output.
+`split' will split the window (using cmake-build window
+splitting options), `frame' will create a new frame.  In all
+cases, the buffers will be reused if they are visible, regardless
+of current display type."
   :type 'symbol
   :group 'cmake-build
   :options '(split frame))
 
 (defcustom cmake-build-raise-frame t
-  "Whether to raise the frame of the build window on build. This
-only applies if `cmake-build-display-type` is frame."
+  "Whether to raise the frame of the build window on build.
+This only applies if `cmake-build-display-type` is frame."
   :type 'boolean
   :group 'cmake-build)
 
@@ -82,9 +93,10 @@ quitting the frame or window."
   :group 'cmake-build)
 
 (defcustom cmake-build-split-threshold 40.0
-  "Threshold (percentage) at which to *not* split the current window,
-but instead use the other window.  That is, if `cmake-build-run-window-size`
-is greater than this percentage of the current window, it will not be split."
+  "Threshold (percentage) at which to *not* split the current window.
+Beyond this threshold, we instead use the other window.  That is,
+if `cmake-build-run-window-size` is greater than this percentage
+of the current window, it will not be split."
   :type 'float
   :group 'cmake-build)
 
@@ -100,41 +112,42 @@ Otherwise, leave the current window active"
   :group 'cmake-build)
 
 (defcustom cmake-build-external-term-command "xterm -e %s"
-  "NOT CURRENTLY USED.  External terminal for build/run.  This is
-used as a format string, where '%s' will inject the build
+  "NOT CURRENTLY USED.  External terminal for build/run.
+This is used as a format string, where '%s' will inject the build
 command, and should be appropriately escaped."
   :type 'string
   :group 'cmake-build)
 
 (defcustom cmake-build-dir-name-function 'cmake-build-default-build-dir-function
-  "Specify a function to customize the build directory name.  By
-default, the name is in the form `build.<profile>`."
+  "Specify a function to customize the build directory name.
+By default, the name is in the form `build.<profile>`."
   :type 'function
   :group 'cmake-build)
 
 (defcustom cmake-build-export-compile-commands nil
-  "Ask cmake to generate compile_commands.json and to create a symlink in project-root."
+  "Generate compile_commands.json and symlink into project-root."
   :type 'boolean
   :group 'cmake-build)
 
-(defcustom cmake-build-completing-read-function 'ido-completing-read
-  "Specify a completing function to use in cmake-build-set-config and cmake-build-set-cmake-profile.
-We assume that the function has syntax compatible with  ido-completing-read or ivy-completing-read.  See the indicated cmakeb-build-set-* functions for details."
+(defcustom cmake-build-completing-read-function 'completing-read
+  "Specify completing function for cmake-build.
+This applies to `cmake-build-set-config' and
+`cmake-build-set-cmake-profile.'  We assume that the function has
+syntax compatible with `ido-completing-read' or
+`ivy-completing-read.'  See the indicated cmakeb-build-set-*
+functions for details."
   :type 'function
-  :group 'cmake-build
-  )
+  :group 'cmake-build)
 
 (defcustom cmake-build-project-root-function 'cmake-build-default-project-root-function
   "Return the project root."
   :type 'function
-  :group 'cmake-build
-  )
+  :group 'cmake-build)
 
 (defcustom cmake-build-project-name-function 'cmake-build-default-project-name-function
   "Return the project name."
   :type 'function
-  :group 'cmake-build
-  )
+  :group 'cmake-build)
 ;; (defcustom cmake-build-run-function 'async-shell-command
 ;;   "Specify a function to use in cmake-build-run.
 ;; The function should accept as its first argument the shell command to run (from default-directory) and as its second argument the name of the buffer to use."
@@ -156,15 +169,18 @@ We assume that the function has syntax compatible with  ido-completing-read or i
   "Build profile name to use for `cmake-build-current`.")
 
 (defvar cmake-build-options ""
-  "Additional build options passed to cmake.  For example, \"-j 7\" for parallel builds.")
+  "Additional build options passed to cmake.
+For example, \"-j 7\" for parallel builds.")
 
 (defvar cmake-build-run-config nil
-  "Set name for cmake-build run, specifying the target run-config name.  Run configurations are a
-path, command, and arguments for a particular run.")
+  "Set name for cmake-build run, specifying the target run-config name.
+Run configurations are a path, command, and arguments for a
+particular run.")
 
 (defvar cmake-build-project-root nil
-  "Optionally, set this to the emacs-wide root of the current project.  Setting this to NIL will
-use Projectile to determine the root on a buffer-local basis, instead.")
+  "Optionally, set this to the emacs-wide root of the current project.
+Setting to NIL will use `project' to determine the root on a
+buffer-local basis, instead.")
 
 (defvar cmake-build-build-roots nil
   "This is an alist of build roots per-project, for out-of-source building.")
@@ -303,7 +319,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
   (let ((default-directory (cmake-build--project-root)))
     (funcall cmake-build-project-name-function)))
 
-(defun cmake-build--build-buffer-name (&optional name)
+(defun cmake-build--build-buffer-name (&optional _name)
   (concat "*Build " (cmake-build-project-name) "/" (symbol-name cmake-build-profile) ": " (symbol-name (cmake-build-get-run-config-name)) "*"))
 
 (defun cmake-build--run-buffer-name ()
@@ -355,7 +371,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
 (defun cmake-build--source-root ()
   (cadr (assoc 'cmake-build-source-root (cmake-build--get-project-data))))
 
-(defun cmake-build-default-build-dir-function (project-root profile)
+(defun cmake-build-default-build-dir-function (_project-root profile)
   (concat "build." profile))
 
 (defun cmake-build--get-build-dir-relative (&optional subdir)
@@ -364,7 +380,7 @@ use Projectile to determine the root on a buffer-local basis, instead.")
                    (symbol-name cmake-build-profile))
           "/" (or subdir "")))
 
-(defun cmake-build--get-build-dir (&optional subdir)
+(defun cmake-build--get-build-dir (&optional _subdir)
   (concat (cmake-build--build-root)
 	  (cmake-build--get-build-dir-relative)))
 
@@ -421,9 +437,9 @@ prepend the build directory."
 
 (defun cmake-build--popup-buffer (name other-name)
   (let* ((buffer (get-buffer-create name))
-         (current-buffer-window (get-buffer-window buffer t))
+         (_current-buffer-window (get-buffer-window buffer t))
          (other-buffer-window (and other-name (get-buffer-window other-name t)))
-         (buffer-config-name (cmake-build-get-run-config-name)))
+         (_buffer-config-name (cmake-build-get-run-config-name)))
     (unless (cmake-build--switch-to-buffer buffer (get-buffer-window buffer t) other-buffer-window)
       (display-buffer-pop-up-frame buffer default-frame-alist))
     (when cmake-build-raise-frame
@@ -452,7 +468,7 @@ prepend the build directory."
         (setq-local compilation-directory actual-directory)
         (setq-local default-directory actual-directory))
       ;; compile saves buffers; rely on this now
-      (let* ((compilation-buffer-name-function (lambda (&rest r) buffer-name)))
+      (let* ((_compilation-buffer-name-function (lambda (&rest r) buffer-name)))
         (cl-flet ((run-compile () (compile (concat "time " command))))
           (let ((w (get-buffer-window buffer-name t)))
             (if (and w (not (eql (get-buffer-window) w)))
@@ -471,9 +487,9 @@ prepend the build directory."
                                       (funcall sentinel p e)
                                       (compilation-sentinel p e))))))
         (with-current-buffer buffer-name
-          (mapcar (lambda (w)
-                    (set-window-point w (point-max)))
-                  (get-buffer-window-list buffer-name nil t))
+          (map (lambda (w)
+                 (set-window-point w (point-max)))
+               (get-buffer-window-list buffer-name nil t))
           (visual-line-mode 1)
           (when cmake-build-override-compile-keymap
             (use-local-map cmake-build-run-keymap)))))))
@@ -538,7 +554,7 @@ prepend the build directory."
            (cmake-build-project-root this-root))
       (if cmake-build-before-run
           (cmake-build--invoke-build-current
-           (lambda (process event)
+           (lambda (_process event)
              (let* ((this-root this-root)
                     (cmake-build-project-root this-root))
                (when (cl-equalp "finished\n" event)
@@ -549,7 +565,7 @@ prepend the build directory."
   (interactive)
   (let* ((config (cmake-build--get-run-config))
          (command (cmake-build--get-run-command config))
-         (default-directory (cmake-build--get-run-directory config)) // check whether config should be (car config)
+         (default-directory (cmake-build--get-run-directory config)) ; check whether config should be (car config)
          (process-environment (append (cmake-build--get-run-config-env) process-environment)))
     (gdb (concat "gdb -i=mi --args " command))))
 
@@ -792,3 +808,4 @@ prepend the build directory."
 (add-hook 'kill-emacs-hook #'cmake-build--write-options)
 
 (provide 'cmake-build)
+;;; cmake-build.el ends here

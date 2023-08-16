@@ -1,4 +1,4 @@
-;;; cmake-build.el --- Handle cmake build profiles and target/run configurations for projects  -*- lexical-binding: t; -*-
+;;; cmake-build.el --- CMake build profiles and configurations for projects  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2019-2020  Ryan Pavlik
 
@@ -148,12 +148,14 @@ functions for details."
   "Return the project name."
   :type 'function
   :group 'cmake-build)
-;; (defcustom cmake-build-run-function 'async-shell-command
-;;   "Specify a function to use in cmake-build-run.
-;; The function should accept as its first argument the shell command to run (from default-directory) and as its second argument the name of the buffer to use."
-;;   :type 'function
-;;   :group 'cmake-build
-;;   )
+
+(defcustom cmake-build-run-function 'async-shell-command
+  "Specify a function to use in cmake-build-run.
+The function should accept as its first argument the shell
+command to run (from `default-directory') and as its second
+argument the name of the buffer to use."
+  :type 'function
+  :group 'cmake-build)
 
 (defun cmake-build-default-project-root-function ()
   "Return the project root."
@@ -487,9 +489,11 @@ prepend the build directory."
                                       (funcall sentinel p e)
                                       (compilation-sentinel p e))))))
         (with-current-buffer buffer-name
+          ;; maybe this next thing doesn't work?  flycheck warnings
+          ;; here.
           (map (lambda (w)
-                 (set-window-point w (point-max)))
-               (get-buffer-window-list buffer-name nil t))
+                    (set-window-point w (point-max)))
+                  (get-buffer-window-list buffer-name nil t))
           (visual-line-mode 1)
           (when cmake-build-override-compile-keymap
             (use-local-map cmake-build-run-keymap)))))))
@@ -541,7 +545,7 @@ prepend the build directory."
 	(message "Project root: %s\n" (cmake-build--maybe-remote-project-root))
         (with-current-buffer buffer-name
 	  (insert command))
-        (async-shell-command command buffer-name)
+        (funcall cmake-build-run-function command buffer-name)
         (with-current-buffer buffer-name
           (use-local-map cmake-build-run-keymap))))))
 

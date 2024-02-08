@@ -529,8 +529,9 @@ The display method is determined by `cmake-build-display-type'."
         (setq-local compilation-directory actual-directory)
         (setq-local default-directory actual-directory))
       ;; compile saves buffers; rely on this now
-      (let* ((_compilation-buffer-name-function (lambda (&rest r) buffer-name)))
-        (cl-flet ((run-compile () (compile (concat "time " command))))
+      (let (compilation-buffer)
+        (cl-flet ((run-compile ()
+                    (setq compilation-buffer (compile (concat "time " command)))))
           (let ((w (get-buffer-window buffer-name t)))
             (if (and w (not (eql (get-buffer-window) w)))
                 (if cmake-build-switch-to-build
@@ -541,15 +542,13 @@ The display method is determined by `cmake-build-display-type'."
                     (run-compile)))
               (run-compile))))
         (when sentinel
-          (let ((process (get-buffer-process buffer-name)))
+          (let ((process (get-buffer-process compilation-buffer)))
             (when (process-live-p process)
               (set-process-sentinel process
                                     (lambda (p e)
                                       (funcall sentinel p e)
                                       (compilation-sentinel p e))))))
         (with-current-buffer buffer-name
-          ;; maybe this next thing doesn't work?  flycheck warnings
-          ;; here.
           (dolist (w (get-buffer-window-list buffer-name nil t))
             (set-window-point w (point-max)))
           (visual-line-mode 1)

@@ -285,6 +285,11 @@ result of `cmake-build-project-root-function' otherwise."
    (file-name-as-directory (cmake-build--project-root))
    ".cmake-build.el"))
 
+(defun cmake-build-open-project-data ()
+  "Open project data file."
+  (interactive)
+  (find-file (cmake-build--project-data-path)))
+
 (defun cmake-build--read-project-data ()
   "Read project data from .cmake-build.el file."
   (let ((project-data-path (cmake-build--project-data-path)))

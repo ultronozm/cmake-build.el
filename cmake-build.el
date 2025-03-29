@@ -255,7 +255,8 @@ result of `cmake-build-project-root-function' otherwise."
                (let ((parsed-root (tramp-dissect-file-name project-root-raw)))
                  (tramp-file-name-localname parsed-root))
              (expand-file-name project-root-raw)))))
-    (concat project-root (or (cmake-build--source-root) ""))))
+    (file-name-concat
+     project-root (or (cmake-build--source-root) ""))))
 
 (cl-defmacro cmake-build--save-project-root (nil &body body)
   "Execute BODY with let-bound `cmake-build-project-root'."
@@ -278,10 +279,15 @@ result of `cmake-build-project-root-function' otherwise."
       (setq cmake-build-project-root (or build-project-root cmake-build-project-root))
       (setq cmake-build-build-roots (or build-roots cmake-build-build-roots)))))
 
+(defun cmake-build--project-data-path ()
+  "Return path to project data file."
+  (file-name-concat
+   (file-name-as-directory (cmake-build--project-root))
+   ".cmake-build.el"))
+
 (defun cmake-build--read-project-data ()
   "Read project data from .cmake-build.el file."
-  (let ((project-data-path (concat (file-name-as-directory (cmake-build--project-root))
-                                   ".cmake-build.el")))
+  (let ((project-data-path (cmake-build--project-data-path)))
     (cmake-build--with-file (project-data-path :readp t)
       (read (buffer-string)))))
 
